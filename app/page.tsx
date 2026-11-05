@@ -8,25 +8,6 @@ type Product = { id:number; productCode:string; name:string; manufacturer:string
 type Supplier = { id:number; companyName:string; country:string|null; dispatchLocation:string|null; verificationStatus:string };
 type Offer = { id:number; productId:number; supplierId:number; unitPrice:number|null; currency:string; vatStatus:string; quotationDate:string|null; stockStatus:string|null; leadTime:string|null; shippingCost:number|null };
 
-const fallbackProducts: Product[] = [
-  { id:1, productCode:"DEMO-001", name:"10 L Nitrogen Cylinder", manufacturer:"Vítkovice Cylinders", modelNumber:"10L-200BAR", category:"HVAC & Refrigeration", description:"Empty steel cylinder for technical gases; 200 bar working pressure.", reviewStatus:"verified", sourceType:"internal" },
-  { id:2, productCode:"DEMO-002", name:"Digital Power Meter", manufacturer:"Schneider Electric", modelNumber:"PM800", category:"Electrical & Instrumentation", description:"Historical product family record; exact sub-model requires confirmation.", reviewStatus:"review", sourceType:"internal" },
-  { id:3, productCode:"DEMO-003", name:"ROAIRVAC 6.0 Vacuum Pump", manufacturer:"Rothenberger", modelNumber:"170063", category:"HVAC & Refrigeration", description:"Two-stage vacuum pump, 142 L/min at 50 Hz.", reviewStatus:"verified", sourceType:"internal" },
-  { id:4, productCode:"DEMO-004", name:"Combustible Gas Leak Detector", manufacturer:"JAVAC", modelNumber:"718-202-G21", category:"Test & Measurement", description:"Hydrocarbon and ammonia leak detector with carrying case.", reviewStatus:"verified", sourceType:"internal" },
-  { id:5, productCode:"DEMO-005", name:"Voltage Transformer 690/110 V", manufacturer:"KyongBo Electric", modelNumber:"3LL1", category:"Electrical & Instrumentation", description:"Three-phase line-to-line voltage transformer; historical reference only.", reviewStatus:"review", sourceType:"internal" },
-];
-const fallbackSuppliers: Supplier[] = [
-  {id:1,companyName:"Stuart Plumbing",country:"United Kingdom",dispatchLocation:"Leicestershire, UK",verificationStatus:"verified"},
-  {id:2,companyName:"Industrial Components Europe",country:"Germany",dispatchLocation:"EU warehouse",verificationStatus:"review"},
-  {id:3,companyName:"Gas Bottles Direct",country:"Czech Republic",dispatchLocation:"Prague, CZ",verificationStatus:"verified"},
-];
-const fallbackOffers: Offer[] = [
-  {id:1,productId:1,supplierId:3,unitPrice:86.78,currency:"EUR",vatStatus:"excluded",quotationDate:"2026-10-30",stockStatus:"In stock",leadTime:"3–5 working days",shippingCost:42},
-  {id:2,productId:2,supplierId:2,unitPrice:1558.21,currency:"GBP",vatStatus:"excluded",quotationDate:"2026-10-22",stockStatus:"Quote required",leadTime:"To confirm",shippingCost:null},
-  {id:3,productId:3,supplierId:1,unitPrice:309,currency:"GBP",vatStatus:"excluded",quotationDate:"2026-11-02",stockStatus:"Available",leadTime:"Same-day dispatch",shippingCost:null},
-  {id:4,productId:4,supplierId:1,unitPrice:325.06,currency:"GBP",vatStatus:"excluded",quotationDate:"2026-11-02",stockStatus:"Low stock",leadTime:"Next day",shippingCost:4.99},
-];
-
 const nav = [
   ["Smart Search", Search], ["Overview", LayoutDashboard], ["Product Library", Boxes], ["Suppliers", Users],
   ["Alternatives", Sparkles], ["Projects & RFQs", FileSpreadsheet], ["Data Import", Upload], ["Analytics", CircleDollarSign], ["Settings", Settings],
@@ -39,13 +20,14 @@ function Status({value}:{value:string}) {
 
 export default function Home() {
   const publicReadOnly=process.env.NODE_ENV==="production";
-  const [products,setProducts]=useState(fallbackProducts), [suppliers,setSuppliers]=useState(fallbackSuppliers), [offers,setOffers]=useState(fallbackOffers);
+  const [products,setProducts]=useState<Product[]>([]), [suppliers,setSuppliers]=useState<Supplier[]>([]), [offers,setOffers]=useState<Offer[]>([]);
+  const [loading,setLoading]=useState(true), [loadError,setLoadError]=useState("");
   const [query,setQuery]=useState(""), [category,setCategory]=useState("All categories"), [active,setActive]=useState("Smart Search"), [selected,setSelected]=useState<Product|null>(null);
   const [showImport,setShowImport]=useState(false), [paste,setPaste]=useState(""), [notice,setNotice]=useState("");
   const [importRowsData,setImportRowsData]=useState<Array<Record<string,string>>>([]), [importFileName,setImportFileName]=useState(""), [dragging,setDragging]=useState(false);
   const fileInput=useRef<HTMLInputElement>(null);
 
-  useEffect(()=>{ fetch("/api/catalog").then(r=>r.ok?r.json():Promise.reject()).then(d=>{setProducts(d.products);setSuppliers(d.suppliers);setOffers(d.offers)}).catch(()=>{}); },[]);
+  useEffect(()=>{ fetch("/api/catalog").then(async r=>{if(!r.ok)throw new Error((await r.json()).error||"Unable to load catalogue");return r.json()}).then(d=>{setProducts(d.products);setSuppliers(d.suppliers);setOffers(d.offers)}).catch(error=>setLoadError(error instanceof Error?error.message:"Unable to load catalogue")).finally(()=>setLoading(false)); },[]);
   const categories=useMemo(()=>["All categories",...Array.from(new Set(products.map(p=>p.category).filter(Boolean) as string[]))], [products]);
   const results=useMemo(()=>products.filter(p=>{
     const hay=[p.name,p.manufacturer,p.modelNumber,p.category,p.description].join(" ").toLowerCase();
@@ -53,6 +35,12 @@ export default function Home() {
   }),[products,query,category]);
   const offerFor=(id:number)=>offers.find(o=>o.productId===id);
   const supplierFor=(id?:number)=>suppliers.find(s=>s.id===id);
+  const verifiedCount=products.filter(product=>product.reviewStatus==="verified").length;
+  const verifiedPercent=products.length?Math.round(verifiedCount/products.length*100):0;
+  const recentProducts=useMemo(()=>[...products].filter(product=>product.recordDate).sort((a,b)=>(b.recordDate||"").localeCompare(a.recordDate||"")).slice(0,3),[products]);
+  const formatPrice=(offer:Offer)=>offer.currency==="UNKNOWN"
+    ? new Intl.NumberFormat("en-GB",{minimumFractionDigits:2,maximumFractionDigits:2}).format(offer.unitPrice??0)
+    : new Intl.NumberFormat("en-GB",{style:"currency",currency:offer.currency}).format(offer.unitPrice??0);
 
   function parsePastedRows(){
     const lines=paste.trim().split(/\r?\n/).filter(Boolean); if(lines.length<2)return [];
@@ -99,22 +87,22 @@ export default function Home() {
           <div className="filters"><button className="filter-active"><Database size={14}/> Internal verified records</button><div className="separator"/><label><Filter size={14}/><select value={category} onChange={e=>setCategory(e.target.value)}>{categories.map(c=><option key={c}>{c}</option>)}</select><ChevronDown size={13}/></label><button>Manufacturer <ChevronDown size={13}/></button><button>Supplier country <ChevronDown size={13}/></button><button>Quote date <ChevronDown size={13}/></button></div>
         </div>
         {notice&&<div className="notice"><AlertTriangle size={16}/><span>{notice}</span><button onClick={()=>setNotice("")}><X size={14}/></button></div>}
-        <div className="results-head"><div><strong>{results.length} products</strong><span> ranked by exact and keyword match</span></div><div className="legend"><span><i className="dot verified"/>Verified internal</span><span><i className="dot review"/>Needs review</span></div></div>
+        <div className="results-head"><div><strong>{loading?"Loading catalogue…":`${results.length} products`}</strong>{!loading&&<span> ranked by exact and keyword match</span>}</div><div className="legend"><span><i className="dot verified"/>Verified internal</span><span><i className="dot review"/>Needs review</span></div></div>
         <div className="table-card">
           <table><thead><tr><th>Product</th><th>Model / part no.</th><th>Category</th><th>Best known offer</th><th>Supplier</th><th>Evidence</th><th>Link</th></tr></thead>
-          <tbody>{results.map(p=>{const o=offerFor(p.id),s=supplierFor(o?.supplierId);return <tr key={p.id} onClick={()=>setSelected(p)}>
+          <tbody>{loading?<tr><td colSpan={7}><div className="loading-row"><span className="loading-spinner"/> Loading product library…</div></td></tr>:loadError?<tr><td colSpan={7}><div className="loading-row error">{loadError}</div></td></tr>:results.map(p=>{const o=offerFor(p.id),s=supplierFor(o?.supplierId);return <tr key={p.id} onClick={()=>setSelected(p)}>
             <td><div className="product-cell"><div className="product-icon"><PackageSearch size={19}/></div><div><strong>{p.name}</strong><span>{p.manufacturer||"—"}</span></div></div></td>
             <td><code>{p.modelNumber||"—"}</code><small>{p.productCode||"—"}</small></td><td>{p.category||"—"}</td>
-            <td>{o?.unitPrice!=null?<><strong>{new Intl.NumberFormat("en-GB",{style:"currency",currency:o.currency}).format(o.unitPrice)}</strong><small>{o.vatStatus} VAT · {o.quotationDate||"—"}</small></>:<span className="muted">—</span>}</td>
-            <td>{s?<><strong>{s.companyName}</strong><small>{s.dispatchLocation}</small></>:"—"}</td><td><Status value={p.reviewStatus}/></td><td>{p.productUrl?<a className="external-link" href={p.productUrl} target="_blank" rel="noopener noreferrer" title="Open product page" aria-label={`Open product page for ${p.name}`} onClick={e=>e.stopPropagation()}><ArrowUpRight size={16}/></a>:<span className="muted">—</span>}</td>
+            <td>{o?.unitPrice!=null?<><strong>{formatPrice(o)}</strong><small>{o.vatStatus||"—"} VAT · {o.quotationDate||"—"}</small></>:<><strong>—</strong><small>—</small></>}</td>
+            <td>{s?<><strong>{s.companyName}</strong><small>{s.dispatchLocation||"—"}</small></>:<><strong>—</strong><small>—</small></>}</td><td><Status value={p.reviewStatus}/></td><td>{p.productUrl?<a className="external-link" href={p.productUrl} target="_blank" rel="noopener noreferrer" title="Open product page" aria-label={`Open product page for ${p.name}`} onClick={e=>e.stopPropagation()}><ArrowUpRight size={16}/></a>:<span className="muted">—</span>}</td>
           </tr>})}</tbody></table>
-          {!results.length&&<div className="empty"><PackageSearch size={30}/><strong>No internal matches</strong><p>Adjust filters or preserve this query for future external sourcing.</p></div>}
+          {!loading&&!loadError&&!results.length&&<div className="empty"><PackageSearch size={30}/><strong>No internal matches</strong><p>Adjust filters or preserve this query for future external sourcing.</p></div>}
         </div>
-        <div className="lower-grid"><div className="insight-card"><div className="card-title"><div><History size={17}/><strong>Recent sourcing knowledge</strong></div><button>View all</button></div><ul><li><span className="timeline-dot blue"/><div><strong>Price evidence updated</strong><p>ROAIRVAC 6.0 · Stuart Plumbing</p></div><time>2 Nov</time></li><li><span className="timeline-dot amber"/><div><strong>Model requires confirmation</strong><p>Schneider Electric PM800 family</p></div><time>30 Oct</time></li><li><span className="timeline-dot green"/><div><strong>Supplier verified</strong><p>Gas Bottles Direct · Prague dispatch</p></div><time>30 Oct</time></li></ul></div>
-        <div className="insight-card"><div className="card-title"><div><Database size={17}/><strong>Data quality</strong></div><button>Review queue</button></div><div className="quality"><div><b>78%</b><span>records verified</span></div><div className="progress"><i style={{width:"78%"}}/></div><p><AlertTriangle size={14}/> 2 demonstration records need specification review.</p></div></div></div>
+        <div className="lower-grid"><div className="insight-card"><div className="card-title"><div><History size={17}/><strong>Recent sourcing knowledge</strong></div></div><ul>{recentProducts.map((product,index)=><li key={product.id}><span className={`timeline-dot ${index===0?"blue":index===1?"amber":"green"}`}/><div><strong>{product.name}</strong><p>{supplierFor(offerFor(product.id)?.supplierId)?.companyName||"—"}</p></div><time>{product.recordDate||"—"}</time></li>)}</ul></div>
+        <div className="insight-card"><div className="card-title"><div><Database size={17}/><strong>Data quality</strong></div></div><div className="quality"><div><b>{verifiedPercent}%</b><span>records verified</span></div><div className="progress"><i style={{width:`${verifiedPercent}%`}}/></div><p><AlertTriangle size={14}/> {products.length-verifiedCount} records need review.</p></div></div></div>
       </section>
     </main>
-    {selected&&<div className="drawer-backdrop" onClick={()=>setSelected(null)}><aside className="drawer" onClick={e=>e.stopPropagation()}><button className="close" onClick={()=>setSelected(null)}><X/></button><span className="eyebrow">PRODUCT RECORD</span><h2>{selected.name}</h2><p>{selected.description}</p>{selected.productUrl&&<a className="primary drawer-product-link" href={selected.productUrl} target="_blank" rel="noopener noreferrer">Open product page <ArrowUpRight size={15}/></a>}<div className="drawer-meta"><div><span>Manufacturer</span><strong>{selected.manufacturer||"Not recorded"}</strong></div><div><span>Model</span><strong>{selected.modelNumber||"Not recorded"}</strong></div><div><span>Category</span><strong>{selected.category}</strong></div><div><span>RFQ name</span><strong>{selected.rfqName||"Not recorded"}</strong></div><div><span>Date</span><strong>{selected.recordDate||"Not recorded"}</strong></div><div><span>Review status</span><Status value={selected.reviewStatus}/></div></div><div className="tabs"><button className="active">Overview</button><button>Specifications</button><button>Suppliers & Prices</button><button>History</button></div><div className="evidence-box"><ShieldCheck/><div><strong>Source-traceable record</strong><p>This demonstration entry shows how product facts, supplier offers and historical evidence remain separate.</p></div></div></aside></div>}
+    {selected&&<div className="drawer-backdrop" onClick={()=>setSelected(null)}><aside className="drawer" onClick={e=>e.stopPropagation()}><button className="close" onClick={()=>setSelected(null)}><X/></button><span className="eyebrow">PRODUCT RECORD</span><h2>{selected.name}</h2><p>{selected.description||"—"}</p>{selected.productUrl&&<a className="primary drawer-product-link" href={selected.productUrl} target="_blank" rel="noopener noreferrer">Open product page <ArrowUpRight size={15}/></a>}<div className="drawer-meta"><div><span>Manufacturer</span><strong>{selected.manufacturer||"—"}</strong></div><div><span>Model</span><strong>{selected.modelNumber||"—"}</strong></div><div><span>Category</span><strong>{selected.category||"—"}</strong></div><div><span>RFQ name</span><strong>{selected.rfqName||"—"}</strong></div><div><span>Date</span><strong>{selected.recordDate||"—"}</strong></div><div><span>Review status</span><Status value={selected.reviewStatus}/></div></div><div className="tabs"><button className="active">Overview</button><button>Specifications</button><button>Suppliers & Prices</button><button>History</button></div><div className="evidence-box"><ShieldCheck/><div><strong>Source-traceable record</strong><p>Product, supplier and quotation information is retained from the original procurement workbook.</p></div></div></aside></div>}
     {showImport&&<div className="modal-backdrop"><section className="modal"><button className="close" onClick={()=>setShowImport(false)}><X/></button><span className="eyebrow">DATA IMPORT</span><h2>Import spreadsheet data</h2><p>Upload Excel, CSV or TSV, or paste rows below. The first worksheet and first header row will be used.</p><div className="mapping"><span>Recognised headers</span><code>date · rfqName · productCode · name · manufacturer · modelNumber · category · url · description</code></div><div className={`drop-zone ${dragging?"dragging":""}`} onDragOver={e=>{e.preventDefault();setDragging(true)}} onDragLeave={()=>setDragging(false)} onDrop={dropFile} onClick={()=>fileInput.current?.click()}><input ref={fileInput} type="file" accept=".xlsx,.xls,.csv,.tsv" hidden onChange={e=>{const file=e.target.files?.[0];if(file)void readImportFile(file)}}/><FileSpreadsheet size={26}/><strong>{importFileName||"Drop spreadsheet here or choose a file"}</strong><span>{importRowsData.length?`${importRowsData.length} data row(s) ready`:".xlsx, .xls, .csv or .tsv"}</span></div><div className="import-or"><span>or paste rows</span></div><textarea value={paste} onChange={e=>{setPaste(e.target.value);setImportRowsData([]);setImportFileName("")}} placeholder={'date\trfqName\tproductCode\tname\tmanufacturer\tmodelNumber\tcategory\n2026-11-05\tWind farm spares\tPL-001\tDigital Power Meter\tSchneider Electric\tPM8240\tElectrical & Instrumentation'}/><div className="modal-actions"><button className="secondary" onClick={()=>setShowImport(false)}>Cancel</button><button className="primary" onClick={importRows}><Upload size={15}/> Validate & import</button></div></section></div>}
   </div>;
 }

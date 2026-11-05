@@ -1,15 +1,43 @@
 import { asc, eq } from "drizzle-orm";
+import { env } from "cloudflare:workers";
 import { getDb } from "../../../db";
 import { auditLogs, importBatches, offers, products, suppliers } from "../../../db/schema";
-import seedProducts from "../../../db/seed-products.json";
+import seedCatalog from "../../../db/seed-catalog.json";
 
 async function seedInitialCatalog() {
-  const db = getDb();
-  if ((await db.select({ id: products.id }).from(products).limit(1)).length) return;
-  // D1 enforces a conservative bound-variable limit per statement.
-  const batchSize = 8;
-  for (let index = 0; index < seedProducts.length; index += batchSize) {
-    await db.insert(products).values(seedProducts.slice(index, index + batchSize));
+  const counts = await env.DB.prepare(`
+    SELECT
+      (SELECT COUNT(*) FROM products) AS product_count,
+      (SELECT COUNT(*) FROM suppliers) AS supplier_count,
+      (SELECT COUNT(*) FROM offers) AS offer_count
+  `).first<{ product_count: number; supplier_count: number; offer_count: number }>();
+  if (counts?.product_count === seedCatalog.products.length && counts?.supplier_count === seedCatalog.suppliers.length && counts?.offer_count === seedCatalog.offers.length) return;
+
+  await env.DB.batch([
+    env.DB.prepare("DELETE FROM offers"),
+    env.DB.prepare("DELETE FROM suppliers"),
+    env.DB.prepare("DELETE FROM products"),
+  ]);
+
+  const productIds = new Map(seedCatalog.products.map((product, index) => [product.productCode, index + 1]));
+  const supplierIds = new Map(seedCatalog.suppliers.map((supplier, index) => [supplier.supplierCode, index + 1]));
+  const statements: D1PreparedStatement[] = [];
+  seedCatalog.products.forEach((product, index) => statements.push(env.DB.prepare(`
+    INSERT INTO products (id, product_code, name, manufacturer, model_number, category, rfq_name, record_date, description, product_url, review_status, source_type)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `).bind(index + 1, product.productCode, product.name, product.manufacturer, product.modelNumber, product.category, product.rfqName, product.recordDate, null, product.productUrl, product.reviewStatus, product.sourceType)));
+  seedCatalog.suppliers.forEach((supplier, index) => statements.push(env.DB.prepare(`
+    INSERT INTO suppliers (id, supplier_code, company_name, verification_status)
+    VALUES (?, ?, ?, ?)
+  `).bind(index + 1, supplier.supplierCode, supplier.companyName, supplier.verificationStatus)));
+  seedCatalog.offers.forEach((offer, index) => statements.push(env.DB.prepare(`
+    INSERT INTO offers (id, product_id, supplier_id, unit_price, currency, vat_status, quotation_date, shipping_cost, source_url)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `).bind(index + 1, productIds.get(offer.productCode), supplierIds.get(offer.supplierCode), offer.unitPrice, offer.currency, offer.vatStatus, offer.quotationDate, offer.shippingCost, offer.sourceUrl)));
+
+  const batchSize = 100;
+  for (let index = 0; index < statements.length; index += batchSize) {
+    await env.DB.batch(statements.slice(index, index + batchSize));
   }
 }
 
