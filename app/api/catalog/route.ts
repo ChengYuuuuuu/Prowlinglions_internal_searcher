@@ -6,7 +6,8 @@ import seedProducts from "../../../db/seed-products.json";
 async function seedInitialCatalog() {
   const db = getDb();
   if ((await db.select({ id: products.id }).from(products).limit(1)).length) return;
-  const batchSize = 60;
+  // D1 enforces a conservative bound-variable limit per statement.
+  const batchSize = 8;
   for (let index = 0; index < seedProducts.length; index += batchSize) {
     await db.insert(products).values(seedProducts.slice(index, index + batchSize));
   }
