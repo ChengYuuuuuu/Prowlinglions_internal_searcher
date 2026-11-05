@@ -2,7 +2,6 @@
 
 import { DragEvent, useEffect, useMemo, useRef, useState } from "react";
 import { AlertTriangle, ArrowUpRight, Boxes, CheckCircle2, ChevronDown, CircleDollarSign, Database, FileSpreadsheet, Filter, History, LayoutDashboard, PackageSearch, Search, Settings, ShieldCheck, Sparkles, Upload, Users, X } from "lucide-react";
-import * as XLSX from "xlsx";
 
 type Product = { id:number; productCode:string; name:string; manufacturer:string|null; modelNumber:string|null; category:string|null; rfqName?:string|null; recordDate?:string|null; productUrl?:string|null; description:string|null; reviewStatus:string; sourceType:string };
 type Supplier = { id:number; companyName:string; country:string|null; dispatchLocation:string|null; verificationStatus:string };
@@ -23,6 +22,7 @@ export default function Home() {
   const [products,setProducts]=useState<Product[]>([]), [suppliers,setSuppliers]=useState<Supplier[]>([]), [offers,setOffers]=useState<Offer[]>([]);
   const [loading,setLoading]=useState(true), [loadError,setLoadError]=useState("");
   const [query,setQuery]=useState(""), [category,setCategory]=useState("All categories"), [active,setActive]=useState("Smart Search"), [selected,setSelected]=useState<Product|null>(null);
+  const [page,setPage]=useState(1);
   const [showImport,setShowImport]=useState(false), [paste,setPaste]=useState(""), [notice,setNotice]=useState("");
   const [importRowsData,setImportRowsData]=useState<Array<Record<string,string>>>([]), [importFileName,setImportFileName]=useState(""), [dragging,setDragging]=useState(false);
   const fileInput=useRef<HTMLInputElement>(null);
@@ -33,6 +33,8 @@ export default function Home() {
     const hay=[p.name,p.manufacturer,p.modelNumber,p.category,p.description].join(" ").toLowerCase();
     return (!query || hay.includes(query.toLowerCase())) && (category==="All categories" || p.category===category);
   }),[products,query,category]);
+  const pageSize=50, pageCount=Math.max(1,Math.ceil(results.length/pageSize));
+  const pagedResults=useMemo(()=>results.slice((page-1)*pageSize,page*pageSize),[results,page]);
   const offerFor=(id:number)=>offers.find(o=>o.productId===id);
   const supplierFor=(id?:number)=>suppliers.find(s=>s.id===id);
   const verifiedCount=products.filter(product=>product.reviewStatus==="verified").length;
@@ -51,6 +53,7 @@ export default function Home() {
   async function readImportFile(file:File){
     if(!/\.(xlsx|xls|csv|tsv)$/i.test(file.name)){setNotice("Use an .xlsx, .xls, .csv or .tsv file.");return;}
     try{
+      const XLSX=await import("xlsx");
       const data=await file.arrayBuffer();
       const workbook=XLSX.read(data,{type:"array",cellDates:true});
       const sheet=workbook.Sheets[workbook.SheetNames[0]];
@@ -83,20 +86,21 @@ export default function Home() {
       <section className="content">
         <div className="page-title"><div><span className="eyebrow">SMART SEARCH</span><h1>Find what your team already knows.</h1><p>Search products, model numbers, specifications, suppliers and historical quotations.</p></div>{!publicReadOnly&&<button className="primary" onClick={()=>setShowImport(true)}><Upload size={16}/> Import records</button>}</div>
         <div className="search-panel">
-          <div className="search-row"><Search size={21}/><input value={query} onChange={e=>setQuery(e.target.value)} placeholder="Try ‘10 L nitrogen cylinder 200 bar’ or a manufacturer part number…"/><button>Search</button></div>
-          <div className="filters"><button className="filter-active"><Database size={14}/> Internal verified records</button><div className="separator"/><label><Filter size={14}/><select value={category} onChange={e=>setCategory(e.target.value)}>{categories.map(c=><option key={c}>{c}</option>)}</select><ChevronDown size={13}/></label><button>Manufacturer <ChevronDown size={13}/></button><button>Supplier country <ChevronDown size={13}/></button><button>Quote date <ChevronDown size={13}/></button></div>
+          <div className="search-row"><Search size={21}/><input value={query} onChange={e=>{setQuery(e.target.value);setPage(1)}} placeholder="Try ‘10 L nitrogen cylinder 200 bar’ or a manufacturer part number…"/><button>Search</button></div>
+          <div className="filters"><button className="filter-active"><Database size={14}/> Internal verified records</button><div className="separator"/><label><Filter size={14}/><select value={category} onChange={e=>{setCategory(e.target.value);setPage(1)}}>{categories.map(c=><option key={c}>{c}</option>)}</select><ChevronDown size={13}/></label><button>Manufacturer <ChevronDown size={13}/></button><button>Supplier country <ChevronDown size={13}/></button><button>Quote date <ChevronDown size={13}/></button></div>
         </div>
         {notice&&<div className="notice"><AlertTriangle size={16}/><span>{notice}</span><button onClick={()=>setNotice("")}><X size={14}/></button></div>}
-        <div className="results-head"><div><strong>{loading?"Loading catalogue…":`${results.length} products`}</strong>{!loading&&<span> ranked by exact and keyword match</span>}</div><div className="legend"><span><i className="dot verified"/>Verified internal</span><span><i className="dot review"/>Needs review</span></div></div>
+        <div className="results-head"><div><strong>{loading?"Loading catalogue…":`${results.length} products`}</strong>{!loading&&results.length>0&&<span> · showing {(page-1)*pageSize+1}–{Math.min(page*pageSize,results.length)}</span>}</div><div className="legend"><span><i className="dot verified"/>Verified internal</span><span><i className="dot review"/>Needs review</span></div></div>
         <div className="table-card">
           <table><thead><tr><th>Product</th><th>Model / part no.</th><th>Category</th><th>Best known offer</th><th>Supplier</th><th>Evidence</th><th>Link</th></tr></thead>
-          <tbody>{loading?<tr><td colSpan={7}><div className="loading-row"><span className="loading-spinner"/> Loading product library…</div></td></tr>:loadError?<tr><td colSpan={7}><div className="loading-row error">{loadError}</div></td></tr>:results.map(p=>{const o=offerFor(p.id),s=supplierFor(o?.supplierId);return <tr key={p.id} onClick={()=>setSelected(p)}>
+          <tbody>{loading?<tr><td colSpan={7}><div className="loading-row"><span className="loading-spinner"/> Loading product library…</div></td></tr>:loadError?<tr><td colSpan={7}><div className="loading-row error">{loadError}</div></td></tr>:pagedResults.map(p=>{const o=offerFor(p.id),s=supplierFor(o?.supplierId);return <tr key={p.id} onClick={()=>setSelected(p)}>
             <td><div className="product-cell"><div className="product-icon"><PackageSearch size={19}/></div><div><strong>{p.name}</strong><span>{p.manufacturer||"—"}</span></div></div></td>
             <td><code>{p.modelNumber||"—"}</code><small>{p.productCode||"—"}</small></td><td>{p.category||"—"}</td>
             <td>{o?.unitPrice!=null?<><strong>{formatPrice(o)}</strong><small>{o.vatStatus||"—"} VAT · {o.quotationDate||"—"}</small></>:<><strong>—</strong><small>—</small></>}</td>
             <td>{s?<><strong>{s.companyName}</strong><small>{s.dispatchLocation||"—"}</small></>:<><strong>—</strong><small>—</small></>}</td><td><Status value={p.reviewStatus}/></td><td>{p.productUrl?<a className="external-link" href={p.productUrl} target="_blank" rel="noopener noreferrer" title="Open product page" aria-label={`Open product page for ${p.name}`} onClick={e=>e.stopPropagation()}><ArrowUpRight size={16}/></a>:<span className="muted">—</span>}</td>
           </tr>})}</tbody></table>
           {!loading&&!loadError&&!results.length&&<div className="empty"><PackageSearch size={30}/><strong>No internal matches</strong><p>Adjust filters or preserve this query for future external sourcing.</p></div>}
+          {!loading&&!loadError&&results.length>pageSize&&<div className="pagination"><button disabled={page===1} onClick={()=>setPage(current=>Math.max(1,current-1))}>Previous</button><span>Page {page} of {pageCount}</span><button disabled={page===pageCount} onClick={()=>setPage(current=>Math.min(pageCount,current+1))}>Next</button></div>}
         </div>
         <div className="lower-grid"><div className="insight-card"><div className="card-title"><div><History size={17}/><strong>Recent sourcing knowledge</strong></div></div><ul>{recentProducts.map((product,index)=><li key={product.id}><span className={`timeline-dot ${index===0?"blue":index===1?"amber":"green"}`}/><div><strong>{product.name}</strong><p>{supplierFor(offerFor(product.id)?.supplierId)?.companyName||"—"}</p></div><time>{product.recordDate||"—"}</time></li>)}</ul></div>
         <div className="insight-card"><div className="card-title"><div><Database size={17}/><strong>Data quality</strong></div></div><div className="quality"><div><b>{verifiedPercent}%</b><span>records verified</span></div><div className="progress"><i style={{width:`${verifiedPercent}%`}}/></div><p><AlertTriangle size={14}/> {products.length-verifiedCount} records need review.</p></div></div></div>
