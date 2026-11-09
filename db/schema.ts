@@ -36,6 +36,7 @@ export const suppliers = sqliteTable("suppliers", {
 
 export const offers = sqliteTable("offers", {
   id: integer("id").primaryKey({ autoIncrement: true }),
+  rfqItemId: integer("rfq_item_id").references(() => rfqItems.id),
   productId: integer("product_id").notNull().references(() => products.id),
   supplierId: integer("supplier_id").notNull().references(() => suppliers.id),
   unitPrice: real("unit_price"), currency: text("currency").notNull().default("GBP"),
@@ -47,6 +48,7 @@ export const offers = sqliteTable("offers", {
 export const projects = sqliteTable("projects", {
   id: integer("id").primaryKey({ autoIncrement: true }),
   projectCode: text("project_code").notNull().unique(), customerName: text("customer_name"),
+  customerContact: text("customer_contact"),
   title: text("title").notNull(), status: text("status").notNull().default("researching"),
   assignedTo: text("assigned_to"), receivedAt: text("received_at"), notes: text("notes"), ...timestamps,
 });
@@ -54,6 +56,7 @@ export const projects = sqliteTable("projects", {
 export const rfqItems = sqliteTable("rfq_items", {
   id: integer("id").primaryKey({ autoIncrement: true }),
   projectId: integer("project_id").notNull().references(() => projects.id),
+  sourceRow: integer("source_row"),
   productId: integer("product_id").references(() => products.id),
   requestedDescription: text("requested_description").notNull(),
   requestedQuantity: integer("requested_quantity").notNull().default(1),

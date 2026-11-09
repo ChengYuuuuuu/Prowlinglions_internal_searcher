@@ -127,6 +127,12 @@ When using the Sites plugin, follow its skill instructions for installation, bui
 
 The portable build runs Vinext directly without a host `timeout` command. The managed-linux build uses `scripts/build-verified.sh` and its existing `SITES_BUILD_TIMEOUT` setting.
 
+## Product Editing and Spreadsheets
+
+Product records can be edited from the product details drawer, including their specifications. The Excel export uses the single `Website Import` worksheet and the same 17 columns as the supplied import template. Import accepts flexible header names and optional fields, matches existing products by product code or product name/RFQ, and links customers to RFQs, suppliers to offers, and quantities/prices to those relationships. Large imports are sent in 100-row batches to keep each Cloudflare D1 request within its execution budget.
+
+The catalog API is publicly readable, and product edits/imports are also enabled without authentication. Anyone who can reach the site can change its data. Restrict access with Cloudflare Access before using real procurement or supplier information.
+
 ## Learn More
 
 - [vinext Documentation](https://github.com/cloudflare/vinext)

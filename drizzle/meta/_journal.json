@@ -15,6 +15,13 @@
       "when": 1793848150206,
       "tag": "0001_married_blizzard",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1794194800150,
+      "tag": "0002_cool_spirit",
+      "breakpoints": true
     }
   ]
 }
